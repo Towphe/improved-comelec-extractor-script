@@ -33,6 +33,7 @@ def extract_candidates_from_file(filename: str, include_senators: bool = True, i
     temp_bangsamoro = []
     candidates = []
     max_provincial_board_slots = 0
+    max_councilor_board_slots = 0
 
     # read file
     try:
@@ -103,7 +104,7 @@ def extract_candidates_from_file(filename: str, include_senators: bool = True, i
             # get max number of councilors to vote for
             strNum = row[0].split("\n")[0].split(" ")[-1]
             try:
-                master_dict["maxCouncilorBoardSlots"] = int(strNum)
+                max_councilor_board_slots = int(strNum)
             except:
                 return None
             
@@ -152,6 +153,7 @@ def extract_candidates_from_file(filename: str, include_senators: bool = True, i
     if len(temp_bangsamoro) == 0:
         return {
             "max_provincial_board_slots": max_provincial_board_slots,
+            "max_councilor_board_slots": max_councilor_board_slots,
             "candidates": list(filter(lambda candidate: candidate[0] != "", candidates))
         }
 
@@ -178,9 +180,9 @@ def extract_candidates_from_file(filename: str, include_senators: bool = True, i
                 # master_dict[curr_pos].append((ballot_number, ballot_name.replace("\n", " "),curr_pos))
                 candidates.append((ballot_number, ballot_name.replace("\n", " "), curr_pos))
 
-    # vice_governors = list(filter(lambda candidate: candidate[2] == "PROVINCIAL VICE-GOVERNOR", res["candidates"]))
     return {
         "max_provincial_board_slots": max_provincial_board_slots,
+        "max_councilor_board_slots": max_councilor_board_slots,
         "candidates": list(filter(lambda candidate: candidate[0] != "", candidates))
     }
 
@@ -243,6 +245,7 @@ def extract_from_region(region:str, link:str):
                 res = extract_candidates_from_file(f"temp/{filename}", include_senators=False, include_partylists=False)
                 
                 max_provincial_board = res["max_provincial_board_slots"]
+                max_lgu_council = res["max_councilor_board_slots"]
                 
                 # set province
                 province = province_name
@@ -274,10 +277,10 @@ def extract_from_region(region:str, link:str):
                 candidates = list(filter(lambda cand: cand[2] != "PROVINCIAL GOVERNOR" and cand[2] != "PROVINCIAL VICE-GOVERNOR", res["candidates"]))
                 
                 cursor.execute("""
-                    INSERT INTO lgu (lgu, province, region, province_id, max_provincial_board)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO lgu (lgu, province_name, region, province_id, max_provincial_board, max_lgu_council)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING lgu_id;
-                    """, (lgu_name, province_name, region, province_id, max_provincial_board))
+                    """, (lgu_name, province_name, region, province_id, max_provincial_board, max_lgu_council))
                 lgu_id = cursor.fetchone()[0]
                 db.commit()
                 
@@ -289,15 +292,17 @@ def extract_from_region(region:str, link:str):
             else:
                 # don't include governors and vice governors
                 res = extract_candidates_from_file(f"temp/{filename}", include_senators=False, include_provincial=False, include_partylists=False)
+                
+                max_lgu_council = res["max_councilor_board_slots"]
 
                 candidates = list(filter(lambda cand: cand[2] != "PROVINCIAL GOVERNOR" and cand[2] != "PROVINCIAL VICE-GOVERNOR", res["candidates"]))
                 
                 cursor = db.cursor()
                 cursor.execute("""
-                    INSERT INTO lgu (lgu, province, region, province_id, max_provincial_board)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO lgu (lgu, province_name, region, province_id, max_provincial_board, max_lgu_council)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING lgu_id;
-                    """, (lgu_name, province_name, region, province_id, max_provincial_board))
+                    """, (lgu_name, province_name, region, province_id, max_provincial_board, max_lgu_council))
                 lgu_id = cursor.fetchone()[0]
                 db.commit()
                 
@@ -348,22 +353,25 @@ def extract_from_ncr(link:str):
         res = extract_candidates_from_file(f"temp/{filename}", include_senators=False, include_partylists=False, include_barmm_partylists=False, include_provincial=False)
         
         candidates = res["candidates"]
+        max_lgu_council = res["max_councilor_board_slots"]
         
-        for candidate in candidates:
-            cursor = db.cursor()
-            cursor.execute("""
-                INSERT INTO lgu (lgu, province, region, province_id, max_provincial_board)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING lgu_id;
-                """, (lgu_name, None, "NCR", None, 0))
-            lgu_id = cursor.fetchone()[0]
-            db.commit()
+        # for candidate in candidates:
+        cursor = db.cursor()
+        cursor.execute("""
+            INSERT INTO lgu (lgu, province_name, region, province_id, max_provincial_board, max_lgu_council)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING lgu_id;
+            """, (lgu_name, None, "NCR", None, 0, max_lgu_council))
+        lgu_id = cursor.fetchone()[0]
+        db.commit()
     
         # for candidate in combined_provincials:
         with cursor.copy("COPY candidate (lgu_id, province_id, ballot_number, ballot_name, position) FROM STDIN") as copy:
             for candidate in candidates:
                 copy.write_row((lgu_id, None, int(candidate[0]), candidate[1], candidate[2]))
         db.commit()
+        
+        os.remove(f"temp/{filename}")
     
     return
 
@@ -412,4 +420,4 @@ def extract_all():
     
     return
 
-# extract_all()
+extract_all()
